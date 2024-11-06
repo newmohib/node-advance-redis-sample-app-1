@@ -7,14 +7,15 @@ const redisUrl = "redis://127.0.0.1:6379";
 //
 const client = redis.createClient(redisUrl);
 // replace the util.promisify with util.promisifyAll
-client.get = util.promisify(client.get);
+client.hget = util.promisify(client.hget);
 
 const exec = mongoose.Query.prototype.exec;
 
 // add cache functionality into prototype for query customization
-
-mongoose.Query.prototype.cache = async function () {
+// this cache is used into blogRoutes get blog
+mongoose.Query.prototype.cache = async function (options = {}) {
   this.useCache = true;
+  this.hashKey = JSON.stringify(options.key || "");
   return this;
 };
 
@@ -36,7 +37,7 @@ mongoose.Query.prototype.exec = async function () {
   console.log({ key });
 
   // See if we have a value for 'key' in redis
-  const cacheValue = await client.get(key);
+  const cacheValue = await client.hget(this.hashKey, key);
   console.log({ cacheValue });
 
   if (cacheValue) {
@@ -55,8 +56,16 @@ mongoose.Query.prototype.exec = async function () {
   const result = await exec.apply(this, arguments);
   console.log({ result });
   // expires in 10 seconds
-  client.set(key, JSON.stringify(result), "EX", 10);
+  client.hset(this.hashKey, key, JSON.stringify(result), "EX", 10);
   console.log("Serving from database");
 
   return result;
+};
+
+
+// export the clearHash from redis function
+module.exports = {
+  clearHash(hashKey) {
+    client.del(JSON.stringify(hashKey));
+  },
 };
